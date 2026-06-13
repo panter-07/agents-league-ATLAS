@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Galaxy } from "./Galaxy";
-import { NODES, EDGES, CATEGORY_COLORS } from "@/lib/knowledge-graph";
+import { NODES, EDGES, CATEGORY_COLORS, type KnowledgeNode } from "@/lib/knowledge-graph";
 
 const QUICK = ["react", "oauth", "kubernetes", "rag", "graphql", "llm", "postgresql"];
 
@@ -8,7 +8,7 @@ export function AtlasShell() {
   const [focus, setFocus] = useState<string>("oauth");
   const [query, setQuery] = useState("");
 
-  const focusNode = NODES.find(n => n.id === focus)!;
+  const focusNode: KnowledgeNode = NODES.find(n => n.id === focus) ?? NODES[0] ?? { id: focus, label: focus, kind: "term", category: "web", summary: "" };
 
   const related = useMemo(() => {
     const map = new Map<string, number>();
@@ -17,7 +17,7 @@ export function AtlasShell() {
       else if (e.target === focus) map.set(e.source, e.weight);
     });
     return [...map.entries()]
-      .map(([id, w]) => ({ node: NODES.find(n => n.id === id)!, w }))
+      .map(([id, w]) => ({ node: NODES.find(n => n.id === id) ?? { id, label: id, kind: "term", category: "web", summary: "" }, w }))
       .sort((a, b) => b.w - a.w)
       .slice(0, 6);
   }, [focus]);
@@ -25,7 +25,7 @@ export function AtlasShell() {
   const filtered = useMemo(() => {
     if (!query.trim()) return [];
     const q = query.toLowerCase();
-    return NODES.filter(n => n.label.toLowerCase().includes(q) || n.summary.toLowerCase().includes(q)).slice(0, 6);
+    return NODES.filter(n => (n.label || "").toLowerCase().includes(q) || (n.summary || "").toLowerCase().includes(q)).slice(0, 6);
   }, [query]);
 
   const suggestions = useMemo(() => {
@@ -131,7 +131,7 @@ export function AtlasShell() {
           <div className="mb-2 font-mono text-[10px] tracking-[0.25em] text-muted-foreground">// QUICK JUMP</div>
           <div className="flex flex-wrap gap-1.5">
             {QUICK.map(id => {
-              const n = NODES.find(x => x.id === id)!;
+              const n = NODES.find(x => x.id === id) ?? { id, label: id, kind: "term", category: "web", summary: "" };
               const active = id === focus;
               return (
                 <button
