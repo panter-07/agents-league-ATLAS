@@ -17,7 +17,7 @@ interface Props {
 type Level = "galaxy" | "cluster" | "term";
 
 interface Vec { x: number; y: number }
-interface NodeLayout extends Vec { id: string; label: string; r: number; color: string; kind: "galaxy" | "cluster" | "term"; meta?: string }
+interface NodeLayout extends Vec { id: string; label: string; r: number; z?: number; color: string; kind: "galaxy" | "cluster" | "term"; meta?: string }
 interface EdgeLayout { ax: number; ay: number; bx: number; by: number; color: string; dashed: boolean; opacity: number }
 interface Camera { x: number; y: number; k: number }
 
@@ -51,7 +51,9 @@ export function Galaxy({ focusId, onFocus }: Props) {
   const [activeGalaxyId, setActiveGalaxyId] = useState<string | null>(null);
   const [activeClusterId, setActiveClusterId] = useState<string | null>(null);
   const [cam, setCam] = useState<Camera>({ x: 0, y: 0, k: 1 });
+  const [rot, setRot] = useState({ rx: 0.08, ry: -0.06 }); // rotation around X and Y in radians
   const dragRef = useRef<{ sx: number; sy: number; cx: number; cy: number } | null>(null);
+  const rotateRef = useRef<{ sx: number; sy: number; rx: number; ry: number } | null>(null);
   const animRef = useRef<number | null>(null);
   const camRef = useRef(cam);
   camRef.current = cam;
@@ -120,6 +122,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
         id: g.id,
         label: g.label,
         r: 30 + h(`gr-${g.id}`) * 10,
+        z: (h(`z-${g.id}`) - 0.5) * 220,
         color: g.color,
         kind: "galaxy",
         meta: `${g.clusters.length} clusters`,
@@ -150,6 +153,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
       id: c.id,
       label: c.label,
       r: 22 + h(`cr-${c.id}`) * 8,
+      z: (h(`z-${c.id}`) - 0.5) * 140,
       color: gal.color,
       kind: "cluster",
       meta: `${c.terms.length} terms`,
@@ -178,6 +182,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
         id,
         label: t,
         r: 10 + h(`tr-${id}`) * 5,
+        z: (h(`z-${id}`) - 0.5) * 90,
         color: gal.color,
         kind: "term",
         x: p.x,
@@ -225,6 +230,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
           id: otherId,
           label: otherNode.label,
           r: 8,
+          z: (h(`z-ghost-${otherId}`) - 0.5) * 120,
           color: otherGal?.color ?? "#888",
           kind: "term",
           meta: `→ ${otherCluster?.label ?? otherGal?.label ?? ""}`,
@@ -289,19 +295,54 @@ export function Galaxy({ focusId, onFocus }: Props) {
     setCam(c => ({ ...c, k: Math.min(4, Math.max(0.3, c.k * (e.deltaY < 0 ? 1.1 : 0.91))) }));
   }
   function onDown(e: React.PointerEvent) {
-    dragRef.current = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y };
+    // if Shift is held, start rotation; otherwise start panning
+    if (e.shiftKey) {
+      rotateRef.current = { sx: e.clientX, sy: e.clientY, rx: rot.rx, ry: rot.ry };
+    } else {
+      dragRef.current = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y };
+    }
     (e.target as Element).setPointerCapture(e.pointerId);
   }
   function onMove(e: React.PointerEvent) {
+    if (rotateRef.current) {
+      const r = rotateRef.current;
+      const dx = (e.clientX - r.sx) * 0.008;
+      const dy = (e.clientY - r.sy) * 0.008;
+      setRot({ rx: Math.max(-1.2, Math.min(1.2, r.rx + dy)), ry: r.ry + dx });
+      return;
+    }
     if (!dragRef.current) return;
     const d = dragRef.current;
     setCam(c => ({ ...c, x: d.cx + (e.clientX - d.sx) / c.k, y: d.cy + (e.clientY - d.sy) / c.k }));
   }
   function onUp() { dragRef.current = null; }
 
+  // when pointer up, clear rotation ref as well
+  useEffect(() => {
+    function up() { rotateRef.current = null; }
+    window.addEventListener('pointerup', up);
+    return () => window.removeEventListener('pointerup', up);
+  }, []);
+
   // World → screen
-  function ws(x: number, y: number): Vec {
-    return { x: cx + (x + cam.x) * cam.k, y: cy + (y + cam.y) * cam.k };
+  // 3D project a world coordinate (x,y,z) into screen space with rotation and simple perspective
+  function project(x: number, y: number, z = 0) {
+    // apply rotation around Y then X
+    const cosy = Math.cos(rot.ry), siny = Math.sin(rot.ry);
+    const cosx = Math.cos(rot.rx), sinx = Math.sin(rot.rx);
+
+    // rotate Y
+    const xr = x * cosy + z * siny;
+    const zr = -x * siny + z * cosy;
+    // rotate X
+    const yr = y * cosx - zr * sinx;
+    const zr2 = y * sinx + zr * cosx;
+
+    // simple perspective scaling
+    const depthScale = 0.0009; // tweak for stronger effect
+    const scale = 1 / (1 + zr2 * depthScale);
+
+    return { x: cx + (xr + cam.x) * cam.k * scale, y: cy + (yr + cam.y) * cam.k * scale, scale, z: zr2 };
   }
 
   // ── RENDER ────────────────────────────────────────────────────────
@@ -348,9 +389,10 @@ export function Galaxy({ focusId, onFocus }: Props) {
     const isFocus = focusId === node.id;
     const isHov = hover === node.id;
     const connected = isConnectedToSelected(node.id);
-    const p = ws(node.x, node.y);
+    const z = node.z ?? 0;
+    const p3 = project(node.x, node.y, z);
     const base = ghost ? node.r * 0.75 : isFocus ? node.r * 1.3 : isHov ? node.r * 1.15 : node.r;
-    const r = (connected ? base * 1.28 : base) * cam.k;
+    const r = (connected ? base * 1.28 : base) * cam.k * p3.scale;
     const op = ghost ? 0.38 : selectedId ? (connected ? 1 : 0.18) : 1;
 
     return (
@@ -359,20 +401,20 @@ export function Galaxy({ focusId, onFocus }: Props) {
         onPointerLeave={() => setHover(null)}
         onClick={onClick ?? (() => handleNodeClick(node))}>
         {/* outer glow */}
-        <circle cx={p.x} cy={p.y} r={r * 2.2} fill={node.color} opacity={connected || isHov || isFocus ? 0.22 : 0.07} />
+        <circle cx={p3.x} cy={p3.y} r={r * 2.2} fill={node.color} opacity={connected || isHov || isFocus ? 0.22 : 0.07} />
         {/* orbit ring for galaxy nodes */}
         {node.kind === "galaxy" && (
-          <circle cx={p.x} cy={p.y} r={r * 1.6} fill="none" stroke={node.color}
+          <circle cx={p3.x} cy={p3.y} r={r * 1.6} fill="none" stroke={node.color}
             strokeWidth={0.7} strokeDasharray="2 5" opacity={0.35} />
         )}
         {/* core */}
-        <circle cx={p.x} cy={p.y} r={r}
+        <circle cx={p3.x} cy={p3.y} r={r}
           fill={ghost ? "oklch(0.15 0.02 255)" : "oklch(0.19 0.03 255)"}
           stroke={node.color} strokeWidth={connected ? (isFocus ? 2.8 : 2.2) : (ghost ? 1 : 1.5)}
           strokeDasharray={ghost ? "3 3" : undefined}
           style={{ filter: `drop-shadow(0 0 ${connected ? 26 : isFocus ? 22 : isHov ? 14 : 8}px ${node.color})`, transition: 'r 180ms ease, stroke-width 160ms ease, filter 180ms ease' }} />
         {/* label */}
-        <text x={p.x} y={p.y + r + 15 * cam.k} textAnchor="middle"
+        <text x={p3.x} y={p3.y + r + 15 * cam.k} textAnchor="middle"
           fill={ghost ? "oklch(0.6 0.04 240)" : isFocus ? "oklch(0.97 0.04 220)" : "oklch(0.88 0.04 225)"}
           fontSize={Math.max(9, (node.kind === "galaxy" ? 13 : node.kind === "cluster" ? 11 : 9.5) * cam.k)}
           fontFamily="Space Grotesk, sans-serif" fontWeight={isFocus ? 700 : 500}
@@ -381,7 +423,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
         </text>
         {/* meta (cluster count / term count / cross-cluster label) */}
         {node.meta && (
-          <text x={p.x} y={p.y + r + (node.kind === "term" ? 26 : 27) * cam.k} textAnchor="middle"
+            <text x={p3.x} y={p3.y + r + (node.kind === "term" ? 26 : 27) * cam.k} textAnchor="middle"
             fill={node.color} fontSize={Math.max(7, 8.5 * cam.k)}
             fontFamily="JetBrains Mono, monospace" opacity={ghost ? 0.7 : 0.75}>
             {node.meta}
@@ -393,11 +435,13 @@ export function Galaxy({ focusId, onFocus }: Props) {
 
   function renderEdges(nodes: NodeLayout[], toCenter: boolean, ghosts?: NodeLayout[]) {
     const termIds = new Set(nodes.map(n => n.id));
+    const projCenter = project(0, 0, 0);
+    const projNodes = nodes.map(n => ({ n, p: project(n.x, n.y, n.z ?? 0) }));
+    const projGhosts = ghosts?.map(g => ({ g, p: project(g.x, g.y, g.z ?? 0) }));
     return (
       <>
-        {nodes.map(n => {
-          const p = ws(n.x, n.y);
-          const c = toCenter ? ws(0, 0) : null;
+        {projNodes.map(({ n, p }) => {
+          const c = toCenter ? projCenter : null;
           if (!c) return null;
           const connected = selectedId ? isConnectedToSelected(n.id) || selectedId === n.id : false;
           return (
@@ -412,7 +456,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
             (e.source === a.id && e.target === b.id) ||
             (e.source === b.id && e.target === a.id));
           if (!connected) return null;
-          const pa = ws(a.x, a.y); const pb = ws(b.x, b.y);
+          const pa = project(a.x, a.y, a.z ?? 0); const pb = project(b.x, b.y, b.z ?? 0);
           const edgeHighlighted = selectedId ? (isConnectedToSelected(a.id) || isConnectedToSelected(b.id) || selectedId === a.id || selectedId === b.id) : false;
           return (
             <line key={`e-${a.id}-${b.id}`}
@@ -421,15 +465,15 @@ export function Galaxy({ focusId, onFocus }: Props) {
           );
         }))}
         {/* ghost edges */}
-        {ghosts?.map(g => {
+        {projGhosts?.map(({ g, p }) => {
           const anchor = nodes.find(n =>
             EDGES.some(e => (e.source === n.id && e.target === g.id) || (e.source === g.id && e.target === n.id)));
           if (!anchor) return null;
-          const pa = ws(anchor.x, anchor.y); const pg = ws(g.x, g.y);
+          const pa = project(anchor.x, anchor.y, anchor.z ?? 0);
           const ghConnected = selectedId ? (isConnectedToSelected(g.id) || isConnectedToSelected(anchor.id) || selectedId === g.id || selectedId === anchor.id) : false;
           return (
             <line key={`ge-${g.id}`}
-              x1={pa.x} y1={pa.y} x2={pg.x} y2={pg.y}
+              x1={pa.x} y1={pa.y} x2={p.x} y2={p.y}
               stroke={g.color} strokeWidth={ghConnected ? 1.2 : 0.7} opacity={selectedId ? (ghConnected ? 0.8 : 0.06) : 0.28} strokeDasharray="3 5" />
           );
         })}
@@ -437,7 +481,7 @@ export function Galaxy({ focusId, onFocus }: Props) {
     );
   }
 
-  const centerP = ws(0, 0);
+  const centerP = project(0, 0, 0);
 
   return (
     <div ref={ref}
@@ -466,16 +510,19 @@ export function Galaxy({ focusId, onFocus }: Props) {
         {/* Galaxy level */}
         {level === "galaxy" && (
           <>
-            {/* faint web between galaxies */}
-            {galaxyNodes.map((a, i) => galaxyNodes.slice(i + 1).map(b => {
-              const pa = ws(a.x, a.y); const pb = ws(b.x, b.y);
-              return (
-                <line key={`gw-${a.id}-${b.id}`}
-                  x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
-                  stroke="oklch(0.7 0.08 240)" strokeWidth={0.5} opacity={0.1} />
-              );
-            }))}
-            {galaxyNodes.map(n => renderNode(n))}
+            {(() => {
+              const proj = galaxyNodes.map(n => ({ n, p: project(n.x, n.y, n.z ?? 0) }));
+              const lines = galaxyNodes.map((a, i) => galaxyNodes.slice(i + 1).map(b => {
+                const pa = project(a.x, a.y, a.z ?? 0); const pb = project(b.x, b.y, b.z ?? 0);
+                return (
+                  <line key={`gw-${a.id}-${b.id}`}
+                    x1={pa.x} y1={pa.y} x2={pb.x} y2={pb.y}
+                    stroke="oklch(0.7 0.08 240)" strokeWidth={0.5} opacity={0.1} />
+                );
+              }));
+              const sorted = proj.sort((a, b) => a.p.z - b.p.z).map(p => renderNode(p.n));
+              return (<>{lines}{sorted}</>);
+            })()}
           </>
         )}
 
@@ -492,7 +539,10 @@ export function Galaxy({ focusId, onFocus }: Props) {
               {activeGalDef.label.toUpperCase()}
             </text>
             {renderEdges(clusterNodes, true)}
-            {clusterNodes.map(n => renderNode(n))}
+            {(() => {
+              const proj = clusterNodes.map(n => ({ n, p: project(n.x, n.y, n.z ?? 0) }));
+              return proj.sort((a, b) => a.p.z - b.p.z).map(p => renderNode(p.n));
+            })()}
           </>
         )}
 
@@ -504,8 +554,19 @@ export function Galaxy({ focusId, onFocus }: Props) {
               fill="oklch(0.18 0.03 255)" stroke={activeGalDef.color} strokeWidth={1.5}
               style={{ filter: `drop-shadow(0 0 10px ${activeGalDef.color})` }} />
             {renderEdges(termNodes, true, ghostNodes)}
-            {ghostNodes.map(g => renderNode(g, true, () => handleGhostClick(g)))}
-            {termNodes.map(n => renderNode(n))}
+            {(() => {
+              const projGhost = ghostNodes.map(g => ({ g, p: project(g.x, g.y, g.z ?? 0) }));
+              const projTerm = termNodes.map(n => ({ n, p: project(n.x, n.y, n.z ?? 0) }));
+              const all = [
+                ...projGhost.map(x => ({ type: 'ghost' as const, key: x.g.id, item: x })),
+                ...projTerm.map(x => ({ type: 'term' as const, key: x.n.id, item: x })),
+              ];
+              return all.sort((a, b) => a.item.p.z - b.item.p.z).map(entry => (
+                entry.type === 'ghost'
+                  ? renderNode(entry.item.g, true, () => handleGhostClick(entry.item.g))
+                  : renderNode(entry.item.n)
+              ));
+            })()}
           </>
         )}
       </svg>

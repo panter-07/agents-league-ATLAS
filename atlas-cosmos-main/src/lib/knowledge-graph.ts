@@ -11,6 +11,7 @@ export interface KnowledgeNode {
   category: string; // galaxy id
   cluster?: string; // cluster id (for terms)
   summary: string;
+  example?: string;
 }
 
 export interface KnowledgeEdge {
@@ -169,7 +170,45 @@ for (const g of GALAXIES) {
     for (const t of c.terms) {
       const tid = slug(t);
       if (seen.has(tid)) continue;
-      NODES_BUILD.push({ id: tid, label: t, kind: "term", category: g.id, cluster: c.id, summary: `${t} — part of the ${c.label} cluster in ${g.label}.` });
+      // try to provide a concise human-friendly summary + example when available
+      const key = tid;
+      const defs: Record<string, { summary: string; example: string }> = {
+        // Web
+        html: { summary: "HTML — the standard markup language for creating web pages.", example: "Example: Use semantic tags like <article> and <nav> to structure content." },
+        css: { summary: "CSS — styles and layout rules for HTML content.", example: "Example: Use Flexbox or Grid to build responsive layouts." },
+        javascript: { summary: "JavaScript — the primary scripting language for web interactivity.", example: "Example: Add an event listener to respond to user clicks." },
+        typescript: { summary: "TypeScript — statically typed superset of JavaScript.", example: "Example: Define interfaces to document object shapes and catch errors at compile time." },
+        react: { summary: "React — a component-based UI library for building interactive web apps.", example: "Example: Create reusable components and manage state with hooks like useState." },
+        "next-js": { summary: "Next.js — React framework for hybrid SSR/SSG and routing.", example: "Example: Use getStaticProps to pre-render pages at build time." },
+        nodejs: { summary: "Node.js — JavaScript runtime for building server-side applications.", example: "Example: Create an HTTP server with Express to serve APIs." },
+        expressjs: { summary: "Express.js — minimal web framework for Node.js.", example: "Example: Define routes for REST endpoints like GET /api/users." },
+        graphql: { summary: "GraphQL — a query language for APIs that lets clients request exactly what they need.", example: "Example: Query a user with only the fields you need instead of a fixed REST response." },
+        "rest-api": { summary: "REST API — representational state transfer style for HTTP APIs.", example: "Example: Use standard HTTP verbs (GET, POST, PUT, DELETE) for resources." },
+        websocket: { summary: "WebSocket — persistent bidirectional communication channel over a single TCP connection.", example: "Example: Use WebSockets to push real-time chat messages to connected clients." },
+        docker: { summary: "Docker — containerization platform to package apps and dependencies.", example: "Example: Build and run a containerized service with a Dockerfile." },
+        kubernetes: { summary: "Kubernetes — orchestration system for deploying and managing containerized applications.", example: "Example: Define a Deployment and Service to scale and expose your app." },
+        aws: { summary: "AWS — a major cloud provider offering compute, storage, and managed services.", example: "Example: Deploy a web app to EC2 or a serverless function to Lambda." },
+        postgresql: { summary: "PostgreSQL — open-source relational database with strong SQL support.", example: "Example: Use transactions and indexes to optimize complex queries." },
+        mysql: { summary: "MySQL — widely used relational database for structured data.", example: "Example: Use JOINs to combine related tables." },
+        mongodb: { summary: "MongoDB — document-oriented NoSQL database for flexible schemas.", example: "Example: Store JSON-like documents for quick iteration on data models." },
+        redis: { summary: "Redis — in-memory key-value store often used for caching and fast data access.", example: "Example: Cache computed responses to reduce database load." },
+        pinecone: { summary: "Pinecone — vector database for similarity search and retrieval.", example: "Example: Index embeddings and perform nearest-neighbor search for semantic queries." },
+        embeddings: { summary: "Embeddings — numeric vectors representing semantic meaning of text or other media.", example: "Example: Compute embeddings for documents and use vector search to find related content." },
+        llm: { summary: "LLM — large language model used for natural language understanding and generation.", example: "Example: Use an LLM to generate summaries or answer questions from text." },
+        transformer: { summary: "Transformer — neural architecture powering modern LLMs, using attention mechanisms.", example: "Example: Transformers process tokens in parallel using self-attention to model context." },
+        rag: { summary: "RAG — retrieval-augmented generation combines retrieval with a generator to ground responses.", example: "Example: Fetch relevant documents and pass them as context to an LLM for accurate answers." },
+        prompt: { summary: "Prompt Engineering — crafting inputs to steer LLM outputs effectively.", example: "Example: Provide clear instructions, examples, and constraints to the model." },
+        jwt: { summary: "JWT — JSON Web Token, a compact token format for claiming identity and metadata.", example: "Example: Issue a JWT after login to authenticate API requests." },
+        oauth: { summary: "OAuth — an authorization framework allowing delegated access to resources.", example: "Example: Sign in with a provider to obtain an access token without sharing user credentials." },
+        "open-id-connect": { summary: "OpenID Connect — identity layer on top of OAuth 2.0 for user authentication.", example: "Example: Retrieve user profile information via the ID token after login." },
+        // add more explicit definitions here as needed
+      };
+
+      const def = defs[key] ?? defs[tid.replace(/-/g, "")] ?? null;
+      const summary = def ? def.summary : `${t} — part of the ${c.label} cluster in ${g.label}.`;
+      const example = def ? def.example : `Example: A typical use of ${t} would be within ${c.label.toLowerCase()}.`;
+
+      NODES_BUILD.push({ id: tid, label: t, kind: "term", category: g.id, cluster: c.id, summary, example });
       seen.add(tid);
       EDGES_BUILD.push({ source: cid, target: tid, weight: 0.75 });
     }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Galaxy } from "./Galaxy";
-import { NODES, EDGES, CATEGORY_COLORS, type KnowledgeNode } from "@/lib/knowledge-graph";
+import { NODES, EDGES, CATEGORY_COLORS, GALAXY_DEFS, type KnowledgeNode } from "@/lib/knowledge-graph";
 
 const QUICK = ["react", "oauth", "kubernetes", "rag", "graphql", "llm", "postgresql"];
 
@@ -9,6 +9,8 @@ export function AtlasShell() {
   const [query, setQuery] = useState("");
   const [exploreOpen, setExploreOpen] = useState(false);
   const [exploreTerms, setExploreTerms] = useState<KnowledgeNode[]>([]);
+  const [orbitOpen, setOrbitOpen] = useState(false);
+  const [orbitTermId, setOrbitTermId] = useState<string | null>(null);
 
   const focusNode: KnowledgeNode = NODES.find(n => n.id === focus) ?? NODES[0] ?? { id: focus, label: focus, kind: "term", category: "web", summary: "" };
 
@@ -119,11 +121,70 @@ export function AtlasShell() {
               </div>
             )}
           </div>
-          <button className="rounded-full px-4 py-2 font-mono text-[11px] tracking-widest text-primary-foreground" style={{ background: "var(--grad-glow)", boxShadow: "var(--glow-cyan)" }}>
+          <button onClick={() => { setOrbitTermId(focus); setOrbitOpen(true); }} className="rounded-full px-4 py-2 font-mono text-[11px] tracking-widest text-primary-foreground" style={{ background: "var(--grad-glow)", boxShadow: "var(--glow-cyan)" }}>
             ENTER ORBIT
           </button>
         </div>
       </header>
+
+      {/* ENTER ORBIT DIALOG */}
+      {orbitOpen && (() => {
+        const id = orbitTermId ?? focus;
+        const node = NODES.find(n => n.id === id) ?? focusNode;
+        const gal = GALAXY_DEFS.find(g => g.id === node.category);
+        const cluster = gal?.clusters.find(c => c.id === node.cluster);
+        const connected = EDGES.filter(e => e.source === node.id || e.target === node.id)
+          .map(e => (e.source === node.id ? e.target : e.source))
+          .filter((v, i, a) => a.indexOf(v) === i)
+          .map(cid => NODES.find(n => n.id === cid)).filter(Boolean) as KnowledgeNode[];
+
+        const example = `Example: a minimal usage of ${node.label} might be to ...`;
+        const whereUsed = `${gal?.label ?? "Unknown"}${cluster ? ` › ${cluster.label}` : ""}`;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setOrbitOpen(false)} />
+            <div className="relative z-60 w-[760px] max-w-[95%] rounded-2xl bg-background/90 border border-white/10 p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-semibold">{node.label}</h3>
+                  <div className="text-sm text-muted-foreground mt-1">{whereUsed}</div>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => { setOrbitOpen(false); }} className="rounded px-3 py-1">Close</button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-6">
+                <div>
+                  <div className="font-mono text-[10px] text-muted-foreground">EXPLANATION</div>
+                  <p className="mt-2 text-sm leading-relaxed">{node.summary || `A brief explanation of ${node.label}.`}</p>
+
+                  <div className="font-mono text-[10px] text-muted-foreground mt-4">SIMPLE EXAMPLE</div>
+                  <p className="mt-2 text-sm leading-relaxed">{example}</p>
+                </div>
+
+                <div>
+                  <div className="font-mono text-[10px] text-muted-foreground">CONNECTED TERMS</div>
+                  <div className="mt-2 space-y-2 max-h-64 overflow-auto">
+                    {connected.length === 0 && <div className="text-sm text-muted-foreground">No direct connections</div>}
+                    {connected.map(ct => (
+                      <button key={ct.id} onClick={() => { setOrbitTermId(ct.id); setFocus(ct.id); }}
+                        className="w-full text-left rounded px-2 py-1 hover:bg-white/5 flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ background: CATEGORY_COLORS[ct.category] }} />
+                        <div>
+                          <div className="font-medium">{ct.label}</div>
+                          <div className="text-xs text-muted-foreground">{ct.summary}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* GALAXY CANVAS (full screen) */}
       <div className="absolute inset-0">
