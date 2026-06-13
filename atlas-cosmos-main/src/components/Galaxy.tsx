@@ -308,6 +308,36 @@ export function Galaxy({ focusId, onFocus }: Props) {
 
   const activeGalDef = GALAXY_DEFS.find(g => g.id === activeGalaxyId);
 
+  // respond to external focus changes (navigate to cluster/term when a term is focused)
+  useEffect(() => {
+    if (!focusId) return;
+    // if focusId matches a galaxy id
+    const gal = GALAXY_DEFS.find(g => g.id === focusId);
+    if (gal) {
+      setActiveGalaxyId(gal.id);
+      setLevel("cluster");
+      animateTo({ x: 0, y: 0, k: 1 });
+      return;
+    }
+    // if focusId matches a cluster id
+    const galForCluster = GALAXY_DEFS.find(g => g.clusters.some(c => c.id === focusId));
+    if (galForCluster) {
+      setActiveGalaxyId(galForCluster.id);
+      setActiveClusterId(focusId);
+      setLevel("term");
+      animateTo({ x: 0, y: 0, k: 1 });
+      return;
+    }
+    // if focusId matches a term id in NODES
+    const node = NODES.find(n => n.id === focusId);
+    if (node) {
+      setActiveGalaxyId(node.category);
+      setActiveClusterId(node.cluster ?? null);
+      setLevel(node.kind === "term" ? "term" : node.kind === "cluster" ? "cluster" : "galaxy");
+      animateTo({ x: 0, y: 0, k: 1 });
+    }
+  }, [focusId]);
+
   function isConnectedToSelected(nodeId: string) {
     if (!selectedId) return false;
     if (selectedId === nodeId) return true;

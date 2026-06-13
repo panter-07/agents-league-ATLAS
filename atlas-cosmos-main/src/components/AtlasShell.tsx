@@ -7,6 +7,8 @@ const QUICK = ["react", "oauth", "kubernetes", "rag", "graphql", "llm", "postgre
 export function AtlasShell() {
   const [focus, setFocus] = useState<string>("oauth");
   const [query, setQuery] = useState("");
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [exploreTerms, setExploreTerms] = useState<KnowledgeNode[]>([]);
 
   const focusNode: KnowledgeNode = NODES.find(n => n.id === focus) ?? NODES[0] ?? { id: focus, label: focus, kind: "term", category: "web", summary: "" };
 
@@ -86,8 +88,37 @@ export function AtlasShell() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="glass rounded-full px-4 py-2 font-mono text-[11px] tracking-widest text-muted-foreground transition hover:text-foreground">EXPLORE</button>
+        <div className="relative flex items-center gap-2">
+          <div className="relative">
+            <button
+              onClick={() => {
+                // pick 7-8 random term nodes
+                const terms = NODES.filter(n => n.kind === 'term');
+                const shuffled = terms.sort(() => Math.random() - 0.5);
+                const count = Math.random() < 0.5 ? 7 : 8;
+                setExploreTerms(shuffled.slice(0, count));
+                setExploreOpen(o => !o);
+              }}
+              className="glass rounded-full px-4 py-2 font-mono text-[11px] tracking-widest text-muted-foreground transition hover:text-foreground"
+            >
+              EXPLORE
+            </button>
+            {exploreOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl glass-strong p-2 shadow-lg z-40">
+                <div className="grid grid-cols-2 gap-2">
+                  {exploreTerms.map(t => (
+                    <button key={t.id} onClick={() => { setFocus(t.id); setExploreOpen(false); }}
+                      className="text-sm rounded-lg px-2 py-1 text-left hover:bg-white/5">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ background: CATEGORY_COLORS[t.category] }} />
+                        <span className="truncate">{t.label}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <button className="rounded-full px-4 py-2 font-mono text-[11px] tracking-widest text-primary-foreground" style={{ background: "var(--grad-glow)", boxShadow: "var(--glow-cyan)" }}>
             ENTER ORBIT
           </button>
